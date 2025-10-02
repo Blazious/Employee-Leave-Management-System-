@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -41,6 +42,7 @@ INSTALLED_APPS = [
     'leave',
     'user',
     'audit',
+    'rest_framework_simplejwt',
 ]
 
 MIDDLEWARE = [
@@ -127,3 +129,28 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = "user.User"
 
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",
+    ),
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=3),   # 3 hours
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),   # 7 days (you can change as needed)
+    "ROTATE_REFRESH_TOKENS": False,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,   # default, can be overridden
+    "AUTH_HEADER_TYPES": ("Bearer",),
+}
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  # this reads .env at the project root
+
+CALENDRIC_API_KEY = os.getenv("CALENDRIC_API_KEY")
