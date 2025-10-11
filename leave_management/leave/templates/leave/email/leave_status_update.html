@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .container { padding: 20px; }
+        .header { background-color: #f8f9fa; padding: 10px; }
+        .details { margin: 20px 0; }
+        .footer { margin-top: 20px; font-size: 0.9em; color: #6c757d; }
+        .approved { color: #28a745; }
+        .rejected { color: #dc3545; }
+        .pending { color: #ffc107; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Leave Request {{ status }}</h2>
+        </div>
+        <div class="details">
+            <p><strong>Employee:</strong> {{ employee.get_full_name }}</p>
+            <p><strong>Leave Type:</strong> {{ leave_type }}</p>
+            <p><strong>Start Date:</strong> {{ start_date }}</p>
+            <p><strong>End Date:</strong> {{ end_date }}</p>
+            <p><strong>Total Working Days:</strong> {{ total_days }}</p>
+            <p><strong>Status:</strong> <span class="{{ status|lower }}">{{ status }}</span></p>
+            {% if comments %}
+            <p><strong>Comments:</strong> {{ comments }}</p>
+            {% endif %}
+            {% if approved_by %}
+            <p><strong>Processed by:</strong> {{ approved_by.get_full_name }}</p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

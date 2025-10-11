@@ -1,0 +1,38 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Leave Request Status Update</title>
+</head>
+<body>
+    <h2>Leave Request {{ status }}</h2>
+    <p>Dear {{ employee.get_full_name }},</p>
+    
+    <p>Your leave request has been <strong>{{ status }}</strong>.</p>
+    
+    <h3>Leave Request Details:</h3>
+    <ul>
+        <li><strong>Employee:</strong> {{ employee.get_full_name }}</li>
+        <li><strong>Leave Type:</strong> {{ leave_type }}</li>
+        <li><strong>Start Date:</strong> {{ start_date|date:"M. j, Y" }}</li>
+        <li><strong>End Date:</strong> {{ end_date|date:"M. j, Y" }}</li>
+        <li><strong>Total Working Days:</strong> {{ total_days }}</li>
+        <li><strong>Status:</strong> {{ status }}</li>
+        {% if approved_by %}
+        <li><strong>Processed by:</strong> {{ approved_by.get_full_name }}</li>
+        {% endif %}
+    </ul>
+    
+    {% if comments %}
+    <p><strong>Comments:</strong> {{ comments }}</p>
+    {% endif %}
+    
+    {% if status == "APPROVED" %}
+    <p><em>Please find the official leave request document attached as a PDF.</em></p>
+    {% endif %}
+    
+    <p>Best regards,<br>
+    ELMS System</p>
+</body>
+</html>

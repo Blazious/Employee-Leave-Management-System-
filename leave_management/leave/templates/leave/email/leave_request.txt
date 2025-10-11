@@ -1,0 +1,12 @@
+{% autoescape off %}
+New Leave Request
+
+Employee: {{ employee.get_full_name }}
+Leave Type: {{ leave_type }}
+Start Date: {{ start_date }}
+End Date: {{ end_date }}
+Total Working Days: {{ total_days }}
+Reason: {{ reason }}
+
+Please review this request in the admin panel.
+{% endautoescape %}

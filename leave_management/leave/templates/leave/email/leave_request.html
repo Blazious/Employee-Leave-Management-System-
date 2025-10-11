@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .container { padding: 20px; }
+        .header { background-color: #f8f9fa; padding: 10px; }
+        .details { margin: 20px 0; }
+        .footer { margin-top: 20px; font-size: 0.9em; color: #6c757d; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>New Leave Request</h2>
+        </div>
+        <div class="details">
+            <p><strong>Employee:</strong> {{ employee.get_full_name }}</p>
+            <p><strong>Leave Type:</strong> {{ leave_type }}</p>
+            <p><strong>Start Date:</strong> {{ start_date }}</p>
+            <p><strong>End Date:</strong> {{ end_date }}</p>
+            <p><strong>Total Working Days:</strong> {{ total_days }}</p>
+            <p><strong>Reason:</strong> {{ reason }}</p>
+        </div>
+        <div class="footer">
+            <p>Please review this request in the admin panel.</p>
+        </div>
+    </div>
+</body>
+</html>

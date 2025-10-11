@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import LeaveType, LeaveRequest, LeaveBalance
+from .utils import calculate_leave_days
 from django.conf import settings
 from django.contrib.auth import get_user_model
 
@@ -41,8 +42,8 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
 
     def get_total_days(self, obj):
         if obj.start_date and obj.end_date:
-            # Optionally, you can subtract holidays here using your utils.py
-            return (obj.end_date - obj.start_date).days + 1
+            # Use the proper function that excludes weekends and holidays
+            return calculate_leave_days(obj.start_date, obj.end_date)
         return 0
 
 

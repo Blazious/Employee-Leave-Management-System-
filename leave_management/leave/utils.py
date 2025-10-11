@@ -1,120 +1,147 @@
-# leave/utils.py
-
-import requests
-from datetime import date, timedelta
+﻿from datetime import date, timedelta
+from calendar import day_name
+from typing import List, Tuple
 from io import BytesIO
-from django.conf import settings
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from .models import LeaveBalance, LeaveRequest
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
-# -------------------------------
-# 1️⃣ Calendric API: Kenya Holidays
-# -------------------------------
-def get_kenya_holidays(year: int):
+def get_kenya_holidays(year: int, debug: bool = False) -> List[Tuple[date, str]]:
+    """Get comprehensive list of Kenyan holidays."""
+    fixed_holidays = [
+        (date(year, 1, 1), "New Year's Day"),
+        (date(year, 5, 1), "Labour Day"),
+        (date(year, 6, 1), "Madaraka Day"),
+        (date(year, 10, 10), "Mazingira Day"),
+        (date(year, 10, 20), "Mashujaa Day"),
+        (date(year, 12, 12), "Jamhuri Day"),
+        (date(year, 12, 25), "Christmas Day"),
+        (date(year, 12, 26), "Boxing Day")
+    ]
+    
+    # Calculate Easter-based holidays
+    easter = calculate_easter(year)
+    good_friday = easter - timedelta(days=2)
+    easter_monday = easter + timedelta(days=1)
+    variable_holidays = [
+        (good_friday, "Good Friday"),
+        (easter_monday, "Easter Monday")
+    ]
+    
+    # Combine all holidays
+    all_holidays = fixed_holidays + variable_holidays
+    
+    if debug:
+        print("\nKenya Public Holidays:")
+        print("Fixed Holidays:")
+        for holiday_date, holiday_name in fixed_holidays:
+            print(f"- {holiday_date.strftime('%d %B %Y')} ({day_name[holiday_date.weekday()]}): {holiday_name}")
+        print("\nVariable Religious Holidays:")
+        for holiday_date, holiday_name in variable_holidays:
+            print(f"- {holiday_date.strftime('%d %B %Y')} ({day_name[holiday_date.weekday()]}): {holiday_name}")
+    
+    return all_holidays
+
+def calculate_easter(year: int) -> date:
     """
-    Fetch Kenya public holidays from Calendric API.
-    Returns a list of date objects.
+    Calculate Easter Sunday using the Anonymous Gregorian algorithm.
+    This is a more widely tested and reliable algorithm for Easter calculation.
     """
-    API_KEY = getattr(settings, "CALENDRIC_API_KEY", None)
-    if not API_KEY:
-        return []  # fallback to empty list if API key not set
+    y = year
+    a = y % 19
+    b = y // 100
+    c = y % 100
+    d = b // 4
+    e = b % 4
+    g = (8 * b + 13) // 25
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    
+    return date(y, month, day)
 
-    BASE_URL = "https://calendric.com/api/v1/holidays"
-    params = {
-        "country": "KE",
-        "year": year,
-        "api_key": API_KEY
-    }
-
-    try:
-        response = requests.get(BASE_URL, params=params, timeout=5)
-        response.raise_for_status()
-        holidays = response.json()  # adjust if API response structure differs
-        return [date.fromisoformat(h['date']) for h in holidays]
-    except Exception as e:
-        print(f"Error fetching holidays: {e}")
-        return []
-
-# -------------------------------
-# 2️⃣ Calculate Leave Days
-# -------------------------------
 def calculate_leave_days(start_date: date, end_date: date) -> int:
-    """
-    Calculate total leave days excluding weekends and Kenyan public holidays.
-    """
-    holidays = get_kenya_holidays(start_date.year)
+    """Calculate working days between dates."""
+    holiday_list = get_kenya_holidays(start_date.year)
+    
+    if start_date.year != end_date.year:
+        holiday_list.extend(get_kenya_holidays(end_date.year))
+    
+    # Extract just the dates from the holiday tuples
+    holiday_dates = [h[0] for h in holiday_list]
+    # Create a dict for holiday lookup by date
+    holiday_dict = dict(holiday_list)
+    
     total_days = 0
     current_day = start_date
-
+    
     while current_day <= end_date:
-        if current_day.weekday() < 5 and current_day not in holidays:  # Mon-Fri and not holiday
+        is_weekend = current_day.weekday() >= 5
+        is_holiday = current_day in holiday_dates
+        
+        if not is_weekend and not is_holiday:
             total_days += 1
+        
         current_day += timedelta(days=1)
     
     return total_days
 
-# -------------------------------
-# 3️⃣ Update Leave Balance
-# -------------------------------
-def update_leave_balance(employee, leave_type, days_taken: int):
-    """
-    Deduct approved leave days from the employee's leave balance.
-    """
-    leave_balance, _ = LeaveBalance.objects.get_or_create(
-        employee=employee,
-        leave_type=leave_type,
-        defaults={"days_remaining": 0}
-    )
-    leave_balance.days_remaining = max(leave_balance.days_remaining - days_taken, 0)
-    leave_balance.save()
-    return leave_balance
-
-# -------------------------------
-# 4️⃣ Generate Leave PDF
-# -------------------------------
-def generate_leave_pdf(leave_request: LeaveRequest) -> BytesIO:
-    """
-    Generate a PDF for a leave request including approvals and comments.
-    Returns a BytesIO object.
-    """
+def generate_leave_pdf(leave_request):
+    """Generate PDF document for leave request"""
     buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
-
-    # Company Logo placeholder
-    c.setFont("Helvetica-Bold", 16)
-    c.drawCentredString(width/2, height - 50, "COMPANY LOGO")
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
 
     # Title
-    c.setFont("Helvetica-Bold", 14)
-    c.drawCentredString(width/2, height - 80, "LEAVE REQUEST FORM")
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        spaceAfter=30
+    )
+    story.append(Paragraph("Leave Request Form", title_style))
+    story.append(Spacer(1, 12))
 
-    # Employee & Department
-    c.setFont("Helvetica", 12)
-    c.drawString(50, height - 120, f"Employee: {leave_request.employee.username} ({leave_request.employee.employee_id})")
-    dept_name = leave_request.employee.department.name if leave_request.employee.department else "N/A"
-    c.drawString(50, height - 140, f"Department: {dept_name}")
+    # Leave details
+    data = [
+        ["Employee Name:", f"{leave_request.employee.get_full_name()}"],
+        ["Department:", f"{leave_request.employee.department}"],
+        ["Leave Type:", f"{leave_request.leave_type}"],
+        ["Start Date:", f"{leave_request.start_date}"],
+        ["End Date:", f"{leave_request.end_date}"],
+        ["Total Days:", f"{leave_request.total_days}"],
+        ["Status:", f"{leave_request.get_status_display()}"],
+        ["Applied On:", f"{leave_request.applied_at.strftime('%Y-%m-%d')}"],
+    ]
 
-    # Leave Details
-    c.drawString(50, height - 170, f"Leave Type: {leave_request.leave_type.name if leave_request.leave_type else 'N/A'}")
-    c.drawString(50, height - 190, f"Start Date: {leave_request.start_date}")
-    c.drawString(50, height - 210, f"End Date: {leave_request.end_date}")
-    total_days = (leave_request.end_date - leave_request.start_date).days + 1
-    c.drawString(50, height - 230, f"Total Days: {total_days}")
-    c.drawString(50, height - 250, f"Reason: {leave_request.reason}")
+    if leave_request.approved_by:
+        data.append(["Approved By:", f"{leave_request.approved_by.get_full_name()}"])
+    if leave_request.comments:
+        data.append(["Comments:", f"{leave_request.comments}"])
 
-    # Approval
-    approver_name = leave_request.approved_by.username if leave_request.approved_by else "Pending"
-    c.drawString(50, height - 280, f"Approved By: {approver_name}")
-    c.drawString(50, height - 300, f"Status: {leave_request.status}")
-    c.drawString(50, height - 320, f"Comments: {leave_request.comments if leave_request.comments else 'N/A'}")
+    # Create the table
+    table = Table(data, colWidths=[2*inch, 4*inch])
+    table.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+        ('TOPPADDING', (0, 0), (-1, -1), 12),
+    ]))
+    story.append(table)
 
-    # Footer
-    c.setFont("Helvetica-Oblique", 10)
-    c.drawString(50, 50, "Generated by ELMS")
-
-    c.showPage()
-    c.save()
+    # Build and return the PDF
+    doc.build(story)
     buffer.seek(0)
     return buffer

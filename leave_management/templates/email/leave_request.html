@@ -1,0 +1,27 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Leave Request Notification</title>
+</head>
+<body>
+    <h2>New Leave Request</h2>
+    <p>Dear {{ manager_name }},</p>
+    
+    <p>A new leave request has been submitted by {{ employee_name }}.</p>
+    
+    <h3>Leave Request Details:</h3>
+    <ul>
+        <li>Type: {{ leave_type }}</li>
+        <li>Start Date: {{ start_date }}</li>
+        <li>End Date: {{ end_date }}</li>
+        <li>Reason: {{ reason }}</li>
+    </ul>
+    
+    <p>Please review this request at your earliest convenience.</p>
+    
+    <p>Best regards,<br>
+    ELMS System</p>
+</body>
+</html>
