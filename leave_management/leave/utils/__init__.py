@@ -8,9 +8,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from django.conf import settings
-from django.core.mail import send_mail, EmailMultiAlternatives
+from django.core.mail import send_mail
 from django.template.loader import render_to_string
-from django.utils.html import strip_tags
 from ..models import LeaveBalance, LeaveRequest
 
 def calculate_easter(year: int) -> date:
@@ -124,7 +123,7 @@ def send_leave_request_email(leave_request):
     )
 
 def send_leave_status_update_email(leave_request, status):
-    """Send email notification for leave request status update with PDF attachment"""
+    """Send email notification for leave request status update"""
     subject = f"Leave Request {status.title()}"
     
     context = {
@@ -138,254 +137,236 @@ def send_leave_status_update_email(leave_request, status):
         'approved_by': leave_request.approved_by
     }
     
-    html_message = render_to_string('email/leave_status_update.html', context)
-    plain_message = strip_tags(html_message)
+    html_message = render_to_string('leave/email/leave_status_update.html', context)
+    plain_message = render_to_string('leave/email/leave_status_update.txt', context)
     
-    # Create email with PDF attachment
-    email = EmailMultiAlternatives(
+    send_mail(
         subject=subject,
-        body=plain_message,
+        message=plain_message,
+        html_message=html_message,
         from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[leave_request.employee.email]
+        recipient_list=[leave_request.employee.email],
+        fail_silently=True
     )
-    
-    # Attach HTML version
-    email.attach_alternative(html_message, "text/html")
-    
-    # Generate and attach PDF only for APPROVED status
-    if status.upper() == "APPROVED":
-        try:
-            pdf_buffer = generate_leave_pdf(leave_request)
-            email.attach(
-                filename=f"Leave_Request_{leave_request.id}.pdf",
-                content=pdf_buffer.getvalue(),
-                mimetype="application/pdf"
-            )
-        except Exception as e:
-            # If PDF generation fails, still send the email without attachment
-            print(f"Failed to generate PDF for leave request {leave_request.id}: {e}")
-    
-    email.send(fail_silently=True)
 
 def generate_leave_pdf(leave_request):
     """Generate professional PDF document for leave request"""
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, 
-                           rightMargin=72, leftMargin=72, 
-                           topMargin=72, bottomMargin=72)
+                           topMargin=1*inch, bottomMargin=1*inch,
+                           leftMargin=0.75*inch, rightMargin=0.75*inch)
     styles = getSampleStyleSheet()
     story = []
 
     # Company Header
-    company_style = ParagraphStyle(
+    company_header_style = ParagraphStyle(
         'CompanyHeader',
-        parent=styles['Normal'],
+        parent=styles['Heading1'],
         fontSize=18,
         textColor=colors.darkblue,
         alignment=1,  # Center alignment
-        spaceAfter=6,
+        spaceAfter=20,
         fontName='Helvetica-Bold'
     )
     
-    story.append(Paragraph("ENTERPRISE LEAVE MANAGEMENT SYSTEM", company_style))
-    
-    subtitle_style = ParagraphStyle(
-        'Subtitle',
-        parent=styles['Normal'],
-        fontSize=12,
-        textColor=colors.darkgrey,
-        alignment=1,
-        spaceAfter=20,
-        fontName='Helvetica'
-    )
-    story.append(Paragraph("Official Leave Request Document", subtitle_style))
-    
-    # Add a decorative line
-    from reportlab.platypus import HRFlowable
-    story.append(HRFlowable(width="100%", thickness=2, lineCap='round', color=colors.darkblue))
-    story.append(Spacer(1, 20))
-
-    # Document Info Header
-    doc_info_style = ParagraphStyle(
-        'DocInfo',
+    company_address_style = ParagraphStyle(
+        'CompanyAddress',
         parent=styles['Normal'],
         fontSize=10,
-        textColor=colors.grey,
-        alignment=0,
-        spaceAfter=15,
+        alignment=1,  # Center alignment
+        spaceAfter=30,
         fontName='Helvetica'
     )
-    story.append(Paragraph(f"<b>Document ID:</b> LR-{leave_request.id:06d} | <b>Generated:</b> {leave_request.applied_at.strftime('%B %d, %Y at %I:%M %p')}", doc_info_style))
 
-    # Main Title
-    title_style = ParagraphStyle(
-        'MainTitle',
-        parent=styles['Heading1'],
-        fontSize=20,
-        textColor=colors.darkblue,
-        alignment=1,
-        spaceAfter=30,
-        fontName='Helvetica-Bold'
-    )
-    story.append(Paragraph("LEAVE REQUEST AUTHORIZATION", title_style))
+    story.append(Paragraph("ENTERPRISE LEAVE MANAGEMENT SYSTEM", company_header_style))
+    story.append(Paragraph("Official Leave Request Document", company_address_style))
     story.append(Spacer(1, 20))
 
-    # Employee Information Section
-    section_style = ParagraphStyle(
-        'SectionHeader',
-        parent=styles['Heading2'],
+    # Document Title
+    title_style = ParagraphStyle(
+        'DocumentTitle',
+        parent=styles['Heading1'],
         fontSize=14,
         textColor=colors.darkblue,
-        spaceAfter=10,
-        fontName='Helvetica-Bold',
-        leftIndent=0
+        alignment=1,
+        spaceAfter=20,
+        fontName='Helvetica-Bold'
     )
-    story.append(Paragraph("EMPLOYEE INFORMATION", section_style))
+    story.append(Paragraph("EMPLOYEE LEAVE REQUEST FORM", title_style))
+    story.append(Spacer(1, 15))
 
-    # Employee details with enhanced styling
-    employee_data = [
-        ["Employee Name:", f"{leave_request.employee.get_full_name()}", "Employee ID:", f"{leave_request.employee.employee_id}"],
-        ["Department:", f"{leave_request.employee.department}", "Position:", f"{getattr(leave_request.employee, 'position', 'N/A')}"],
-        ["Email:", f"{leave_request.employee.email}", "Phone:", f"{getattr(leave_request.employee, 'phone', 'N/A')}"],
+    # Compute total working days
+    total_days = calculate_leave_days(leave_request.start_date, leave_request.end_date)
+
+    # Employee Information Section
+    emp_info_style = ParagraphStyle(
+        'SectionHeader',
+        parent=styles['Heading2'],
+        fontSize=12,
+        textColor=colors.darkblue,
+        spaceAfter=10,
+        fontName='Helvetica-Bold'
+    )
+    
+    story.append(Paragraph("EMPLOYEE INFORMATION", emp_info_style))
+    
+    # Employee details table
+    emp_data = [
+        ["Employee ID:", f"{leave_request.employee.employee_id}"],
+        ["Full Name:", f"{leave_request.employee.get_full_name()}"],
+        ["Department:", f"{leave_request.employee.department.name if leave_request.employee.department else 'N/A'}"],
+        ["Department ID:", f"{leave_request.employee.department.department_id if leave_request.employee.department else 'N/A'}"],
+        ["Position:", f"{leave_request.employee.role.replace('_', ' ').title()}"],
+        ["Email:", f"{leave_request.employee.email}"],
+        ["Request Date:", f"{leave_request.applied_at.strftime('%B %d, %Y at %I:%M %p')}"],
     ]
 
-    employee_table = Table(employee_data, colWidths=[1.5*inch, 2.5*inch, 1.5*inch, 2.5*inch])
-    employee_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.lightgrey),
-        ('BACKGROUND', (0, 0), (0, -1), colors.darkblue),
-        ('BACKGROUND', (2, 0), (2, -1), colors.darkblue),
+    emp_table = Table(emp_data, colWidths=[2.2*inch, 3.8*inch])
+    emp_table.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
         ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-        ('TEXTCOLOR', (0, 0), (0, -1), colors.white),
-        ('TEXTCOLOR', (2, 0), (2, -1), colors.white),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('ALIGN', (1, 0), (1, -1), 'LEFT'),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
         ('FONTSIZE', (0, 0), (-1, -1), 10),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
         ('TOPPADDING', (0, 0), (-1, -1), 8),
-        ('LEFTPADDING', (0, 0), (-1, -1), 12),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 12),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
     ]))
-    story.append(employee_table)
+    story.append(emp_table)
     story.append(Spacer(1, 20))
 
     # Leave Details Section
-    story.append(Paragraph("LEAVE REQUEST DETAILS", section_style))
-
+    story.append(Paragraph("LEAVE REQUEST DETAILS", emp_info_style))
+    
     leave_data = [
-        ["Leave Type:", f"{leave_request.leave_type}", "Status:", f"<b>{leave_request.get_status_display()}</b>"],
-        ["Start Date:", f"{leave_request.start_date.strftime('%B %d, %Y')}", "End Date:", f"{leave_request.end_date.strftime('%B %d, %Y')}"],
-        ["Total Working Days:", f"<b>{calculate_leave_days(leave_request.start_date, leave_request.end_date)} days</b>", "Applied On:", f"{leave_request.applied_at.strftime('%B %d, %Y')}"],
+        ["Leave Type:", f"{leave_request.leave_type.name}"],
+        ["Leave Category:", f"{leave_request.leave_type.description}"],
+        ["Start Date:", f"{leave_request.start_date.strftime('%B %d, %Y')} ({leave_request.start_date.strftime('%A')})"],
+        ["End Date:", f"{leave_request.end_date.strftime('%B %d, %Y')} ({leave_request.end_date.strftime('%A')})"],
+        ["Total Working Days:", f"{total_days} days"],
+        ["Reason for Leave:", f"{leave_request.reason}"],
+        ["Request Status:", f"{leave_request.get_status_display()}"],
     ]
 
-    leave_table = Table(leave_data, colWidths=[1.5*inch, 2.5*inch, 1.5*inch, 2.5*inch])
+    if leave_request.approved_by:
+        leave_data.append(["Approved By:", f"{leave_request.approved_by.get_full_name()} ({leave_request.approved_by.role})"])
+        leave_data.append(["Approval Date:", f"{leave_request.updated_at.strftime('%B %d, %Y at %I:%M %p')}"])
+    
+    if leave_request.comments:
+        leave_data.append(["Manager Comments:", f"{leave_request.comments}"])
+
+    leave_table = Table(leave_data, colWidths=[2.2*inch, 3.8*inch])
     leave_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.lightgrey),
-        ('BACKGROUND', (0, 0), (0, -1), colors.darkblue),
-        ('BACKGROUND', (2, 0), (2, -1), colors.darkblue),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
         ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-        ('TEXTCOLOR', (0, 0), (0, -1), colors.white),
-        ('TEXTCOLOR', (2, 0), (2, -1), colors.white),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('ALIGN', (1, 0), (1, -1), 'LEFT'),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
         ('FONTSIZE', (0, 0), (-1, -1), 10),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
         ('TOPPADDING', (0, 0), (-1, -1), 8),
-        ('LEFTPADDING', (0, 0), (-1, -1), 12),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 12),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
     ]))
     story.append(leave_table)
     story.append(Spacer(1, 20))
 
-    # Reason Section
-    story.append(Paragraph("REASON FOR LEAVE", section_style))
-    reason_style = ParagraphStyle(
-        'Reason',
-        parent=styles['Normal'],
-        fontSize=11,
-        leftIndent=20,
-        spaceAfter=15,
-        fontName='Helvetica',
-        borderWidth=1,
-        borderColor=colors.grey,
-        borderPadding=10,
-        backColor=colors.whitesmoke
-    )
-    story.append(Paragraph(leave_request.reason, reason_style))
-
-    # Approval Information (if applicable)
-    if leave_request.approved_by or leave_request.comments:
-        story.append(Spacer(1, 15))
-        story.append(Paragraph("APPROVAL INFORMATION", section_style))
-        
-        approval_data = []
-        if leave_request.approved_by:
-            approval_data.append(["Approved By:", f"{leave_request.approved_by.get_full_name()}"])
-            approval_data.append(["Approver Role:", f"{getattr(leave_request.approved_by, 'role', 'N/A')}"])
-            approval_data.append(["Approved On:", f"{leave_request.updated_at.strftime('%B %d, %Y at %I:%M %p')}"])
-        
-        if leave_request.comments:
-            approval_data.append(["Comments:", leave_request.comments])
-        
-        if approval_data:
-            approval_table = Table(approval_data, colWidths=[2*inch, 4*inch])
-            approval_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, -1), colors.lightgrey),
-                ('BACKGROUND', (0, 0), (0, -1), colors.darkblue),
-                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-                ('TEXTCOLOR', (0, 0), (0, -1), colors.white),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 0), (-1, -1), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-                ('TOPPADDING', (0, 0), (-1, -1), 8),
-                ('LEFTPADDING', (0, 0), (-1, -1), 12),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 12),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ]))
-            story.append(approval_table)
-
-    # Privacy and Legal Section
-    story.append(Spacer(1, 30))
-    story.append(HRFlowable(width="100%", thickness=1, color=colors.lightgrey))
-    story.append(Spacer(1, 15))
+    # Company Policies Section
+    story.append(Paragraph("COMPANY LEAVE POLICIES & TERMS", emp_info_style))
     
+    policy_text = """
+    <b>1. Leave Entitlement:</b> All leave requests are subject to approval based on business requirements and employee entitlement.<br/><br/>
+    
+    <b>2. Notice Period:</b> Leave requests should be submitted with adequate notice as per company policy (minimum 48 hours for emergency leave).<br/><br/>
+    
+    <b>3. Documentation:</b> Medical certificates may be required for sick leave exceeding 3 days. Supporting documentation must be provided when requested.<br/><br/>
+    
+    <b>4. Holiday Periods:</b> Leave during peak business periods may be restricted. Alternative dates may be suggested by management.<br/><br/>
+    
+    <b>5. Return to Work:</b> Employees must report back to work on the scheduled return date or notify their supervisor immediately of any delays.<br/><br/>
+    
+    <b>6. Leave Balance:</b> Leave is subject to available balance and cannot exceed annual entitlement without special authorization.<br/><br/>
+    
+    <b>7. Work Coverage:</b> Employees are responsible for ensuring adequate work coverage during their absence and handing over responsibilities.<br/><br/>
+    
+    <b>8. Emergency Contact:</b> Employees must provide emergency contact information and remain reachable during leave periods when necessary.
+    """
+    
+    policy_style = ParagraphStyle(
+        'PolicyText',
+        parent=styles['Normal'],
+        fontSize=9,
+        spaceAfter=10,
+        fontName='Helvetica',
+        leftIndent=20,
+        rightIndent=20,
+        leading=12
+    )
+    
+    story.append(Paragraph(policy_text, policy_style))
+    story.append(Spacer(1, 15))
+
+    # Signatures Section
+    signature_style = ParagraphStyle(
+        'SignatureHeader',
+        parent=styles['Heading3'],
+        fontSize=11,
+        spaceAfter=15,
+        fontName='Helvetica-Bold'
+    )
+    
+    story.append(Paragraph("AUTHORIZATION & SIGNATURES", signature_style))
+    
+    sig_data = [
+        ["Employee Signature:", "_________________________", "Date: _______________"],
+        ["Supervisor/Manager:", "_________________________", "Date: _______________"],
+        ["HR Department:", "_________________________", "Date: _______________"],
+    ]
+    
+    sig_table = Table(sig_data, colWidths=[2.5*inch, 2*inch, 1.5*inch])
+    sig_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 15),
+        ('TOPPADDING', (0, 0), (-1, -1), 15),
+        ('LINEBELOW', (1, 0), (1, -1), 1, colors.black),
+        ('LINEBELOW', (2, 0), (2, -1), 1, colors.black),
+    ]))
+    story.append(sig_table)
+    story.append(Spacer(1, 25))
+
+    # Privacy Statement
     privacy_style = ParagraphStyle(
-        'Privacy',
+        'PrivacyText',
         parent=styles['Normal'],
         fontSize=8,
         textColor=colors.grey,
-        alignment=0,
+        alignment=1,  # Center alignment
+        spaceAfter=10,
         fontName='Helvetica',
-        leftIndent=0,
-        rightIndent=0
+        leading=10
     )
     
     privacy_text = """
-    <b>PRIVACY NOTICE:</b> This document contains confidential employee information and is intended solely for authorized personnel. 
-    Unauthorized disclosure, distribution, or use of this information is strictly prohibited.<br/><br/>
+    <b>PRIVACY STATEMENT & DATA PROTECTION NOTICE</b><br/><br/>
     
-    <b>LEGAL DISCLAIMER:</b> This leave request is subject to company policies and applicable labor laws. 
-    Approval is at the discretion of management and may be subject to operational requirements.<br/><br/>
+    This document contains confidential employee information and is protected under the company's privacy policy. 
+    The information contained herein is for official business purposes only and may not be disclosed to unauthorized parties. 
+    By processing this leave request, the company confirms compliance with applicable data protection regulations and 
+    maintains appropriate safeguards for personal information.<br/><br/>
     
-    <b>DOCUMENT AUTHENTICITY:</b> This is a computer-generated document. No signature is required for digital authenticity.
-    """
+    <i>Document generated electronically by the Enterprise Leave Management System on {}</i><br/>
+    <i>System Reference: LR-{}-{}</i>
+    """.format(
+        leave_request.applied_at.strftime('%B %d, %Y'),
+        leave_request.employee.employee_id,
+        leave_request.id
+    )
     
     story.append(Paragraph(privacy_text, privacy_style))
-    
-    # Footer
-    story.append(Spacer(1, 20))
-    footer_style = ParagraphStyle(
-        'Footer',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=colors.darkblue,
-        alignment=1,
-        fontName='Helvetica-Bold'
-    )
-    story.append(Paragraph("Enterprise Leave Management System - Automated Document", footer_style))
-    story.append(Paragraph(f"Generated on {leave_request.applied_at.strftime('%B %d, %Y at %I:%M %p')} | Document ID: LR-{leave_request.id:06d}", privacy_style))
 
     # Build and return the PDF
     doc.build(story)
